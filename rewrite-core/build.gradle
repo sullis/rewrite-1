@@ -6,4 +6,7 @@ dependencies {
     implementation 'com.koloboke:koloboke-impl-jdk8:latest.release'
 
     api 'com.google.code.findbugs:jsr305:latest.release'
+
+    testImplementation 'org.littleshoot:littleproxy:latest.release'
+    testImplementation 'net.lightbody.bmp:mitm:latest.release'
 }
