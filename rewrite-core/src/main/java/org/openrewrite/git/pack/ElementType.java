@@ -7,6 +7,7 @@ public enum ElementType {
     OBJ_TREE(0b010),
     OBJ_BLOB(0b011),
     OBJ_TAG(0b100),
+    OBJ_OFS_DELTA(0b110),
     OBJ_REF_DELTA(0b111);
 
     private final int type;

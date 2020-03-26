@@ -1,6 +1,5 @@
 package org.openrewrite.git.pack;
 
-import org.apache.commons.io.Charsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,25 +7,33 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 
 /**
  * This is a utility used in understanding the format of a Git pack file.
- *
+ * <p>
  * To verify a pack file is valid first, use `git verify-pack`.
  */
 @SuppressWarnings("ResultOfMethodCallIgnored")
-public class PackFileReader {
-    private Logger logger = LoggerFactory.getLogger(PackFileReader.class);
+public class PackfileReader {
+    private Logger logger = LoggerFactory.getLogger(PackfileReader.class);
 
     public void read(byte[] bytes) {
+        logger.debug("Data:\n{}", hexString(bytes).replaceAll("(.)(.)", "$1....$2    "));
+        logger.debug("Data:\n{}", binaryString(bytes).replaceAll("(.{4})(.{4})", "$1.$2 "));
+
         PositionReadingByteArrayInputStream in = new PositionReadingByteArrayInputStream(bytes);
 
         try {
-            assert "PACK".equals(new String(in.readNBytes(4)));
-            assert ByteBuffer.wrap(in.readNBytes(4)).getInt() == 2;
+            if (!"PACK".equals(new String(in.readNBytes(4)))) {
+                throw new IllegalStateException("Expected PACK");
+            }
+
+            if (ByteBuffer.wrap(in.readNBytes(4)).getInt() != 2) {
+                throw new IllegalStateException("Expected version 2");
+            }
 
             int entries = ByteBuffer.wrap(in.readNBytes(4)).getInt();
             logger.debug("{} entries", entries);
@@ -53,65 +60,23 @@ public class PackFileReader {
 
                 logger.debug("Data size {}", dataSize);
 
-                switch(elementType) {
+                switch (elementType) {
+                    case OBJ_BLOB:
                     case OBJ_TAG:
                     case OBJ_COMMIT: {
                         byte[] commit = inflate(bytes, in, dataSize);
-                        logger.debug("Data:\n{}", new String(commit, Charsets.UTF_8));
+                        logger.debug("Data:\n{}", new String(commit, StandardCharsets.UTF_8));
+                        break;
+                    }
+                    case OBJ_OFS_DELTA: {
+                        logger.debug("Scan back {} bytes to find base object", readVariableLengthInteger(in, in.read()));
+                        readDelta(bytes, in, dataSize);
                         break;
                     }
                     case OBJ_REF_DELTA: {
                         byte[] baseObjectName = in.readNBytes(20);
                         logger.debug("Base object name " + hexString(baseObjectName));
-
-                        byte[] inflatedData = inflate(bytes, in, dataSize);
-                        logger.debug("Data:\n{}", hexString(inflatedData).replaceAll("(.)(.)", "$1....$2    "));
-                        logger.debug("Data:\n{}", binaryString(inflatedData).replaceAll("(.{4})(.{4})", "$1.$2 "));
-
-                        PositionReadingByteArrayInputStream deltaIn = new PositionReadingByteArrayInputStream(inflatedData);
-                        logger.debug("Source length {}", readVariableLengthInteger(deltaIn, deltaIn.read()));
-                        logger.debug("Target length {}", readVariableLengthInteger(deltaIn, deltaIn.read()));
-
-                        while(deltaIn.available() > 0) {
-                            int commandByte = deltaIn.read();
-                            switch(DeltaCommandType.fromType(commandByte >> 7)) {
-                                case COPY:
-                                    logger.debug("COPY bytes");
-
-                                    /*
-                                     * +----------+---------+---------+---------+---------+-------+-------+-------+
-                                     * | 1xxxxxxx | offset1 | offset2 | offset3 | offset4 | size1 | size2 | size3 |
-                                     * +----------+---------+---------+---------+---------+-------+-------+-------+
-                                     *
-                                     * All offset and size bytes are optional. This is to reduce the instruction size
-                                     * when encoding small offsets or sizes. The first seven bits in the first octet
-                                     * determines which of the next seven octets is present. If bit zero is set,
-                                     * offset1 is present. If bit one is set offset2 is present and so on.
-                                     */
-
-                                    int offset = 0;
-                                    for(int i = 0; i < 4; i++, commandByte >>= 1) {
-                                        if((commandByte & 1) == 1) {
-                                            offset |= deltaIn.read() << (8 * i);
-                                        }
-                                    }
-                                    logger.debug("From offset: " + offset);
-
-                                    int size = 0;
-                                    for(int i = 0; i < 3; i++, commandByte >>= 1) {
-                                        if((commandByte & 1) == 1) {
-                                            size |= deltaIn.read() << (8 * i);
-                                        }
-                                    }
-                                    logger.debug("Size: " + size);
-                                    break;
-                                case INSERT:
-                                    logger.debug("INSERT {} bytes", commandByte);
-                                    logger.debug("Data:\n{}", hexString(deltaIn.readNBytes(commandByte)));
-//                                    logger.debug("Data:\n{}", new String(deltaIn.readNBytes(commandByte), Charsets.UTF_8));
-                            }
-                        }
-
+                        readDelta(bytes, in, dataSize);
                         break;
                     }
                     default:
@@ -120,6 +85,55 @@ public class PackFileReader {
             }
         } catch (IOException | DataFormatException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private void readDelta(byte[] bytes, PositionReadingByteArrayInputStream in, int dataSize) throws DataFormatException, IOException {
+        byte[] inflatedData = inflate(bytes, in, dataSize);
+        logger.debug("Data:\n{}", hexString(inflatedData).replaceAll("(.)(.)", "$1....$2    "));
+        logger.debug("Data:\n{}", binaryString(inflatedData).replaceAll("(.{4})(.{4})", "$1.$2 "));
+
+        PositionReadingByteArrayInputStream deltaIn = new PositionReadingByteArrayInputStream(inflatedData);
+        logger.debug("Source length {}", readVariableLengthInteger(deltaIn, deltaIn.read()));
+        logger.debug("Target length {}", readVariableLengthInteger(deltaIn, deltaIn.read()));
+
+        while (deltaIn.available() > 0) {
+            int commandByte = deltaIn.read();
+            switch (DeltaCommandType.fromType(commandByte >> 7)) {
+                case COPY:
+                    logger.debug("COPY bytes");
+
+                    /*
+                     * +----------+---------+---------+---------+---------+-------+-------+-------+
+                     * | xxxxxxx | offset1 | offset2 | offset3 | offset4 | size1 | size2 | size3 |
+                     * +----------+---------+---------+---------+---------+-------+-------+-------+
+                     *
+                     * All offset and size bytes are optional. This is to reduce the instruction size
+                     * when encoding small offsets or sizes. The first seven bits in the first octet
+                     * determines which of the next seven octets is present. If bit zero is set,
+                     * offset1 is present. If bit one is set offset2 is present and so on.
+                     */
+
+                    int offset = 0;
+                    for (int i = 0; i < 4; i++, commandByte >>= 1) {
+                        if ((commandByte & 1) == 1) {
+                            offset |= deltaIn.read() << (8 * i);
+                        }
+                    }
+                    logger.debug("From offset: " + offset);
+
+                    int size = 0;
+                    for (int i = 0; i < 3; i++, commandByte >>= 1) {
+                        if ((commandByte & 1) == 1) {
+                            size |= deltaIn.read() << (8 * i);
+                        }
+                    }
+                    logger.debug("Size: " + size);
+                    break;
+                case INSERT:
+                    logger.debug("INSERT {} bytes", commandByte);
+                    logger.debug("Data:\n{}", hexString(deltaIn.readNBytes(commandByte)));
+            }
         }
     }
 
@@ -155,7 +169,7 @@ public class PackFileReader {
     private String binaryString(byte[] bytes) {
         BigInteger bigInteger = new BigInteger(1, bytes);
         StringBuilder bin = new StringBuilder(bigInteger.toString(2));
-        while(bin.length() % 4 != 0) {
+        while (bin.length() % 4 != 0) {
             bin.insert(0, "0");
         }
         return bin.toString();

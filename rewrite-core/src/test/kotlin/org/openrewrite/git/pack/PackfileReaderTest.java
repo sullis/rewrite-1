@@ -5,11 +5,11 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 
-public class PackFileReaderTest {
+public class PackfileReaderTest {
     @Test
     public void readPackFile() throws IOException {
-        try (InputStream in = PackFileReader.class.getResourceAsStream("/push.pack")) {
-            new PackFileReader().read(in.readAllBytes());
+        try (InputStream in = PackfileReader.class.getResourceAsStream("/push.pack")) {
+            new PackfileReader().read(in.readAllBytes());
         }
     }
 }

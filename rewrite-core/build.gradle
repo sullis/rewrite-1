@@ -9,4 +9,6 @@ dependencies {
 
     testImplementation 'org.littleshoot:littleproxy:latest.release'
     testImplementation 'net.lightbody.bmp:mitm:latest.release'
+
+    implementation 'com.squareup.okhttp3:okhttp:4.4.1'
 }

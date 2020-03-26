@@ -2,19 +2,9 @@ package org.openrewrite.git;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
-<<<<<<< Updated upstream
-import io.netty.handler.codec.http.*;
-import net.lightbody.bmp.mitm.manager.ImpersonatingMitmManager;
-import org.littleshoot.proxy.*;
-import org.littleshoot.proxy.impl.DefaultHttpProxyServer;
-import org.slf4j.LoggerFactory;
-
-import java.nio.charset.Charset;
-=======
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.*;
 import net.lightbody.bmp.mitm.manager.ImpersonatingMitmManager;
-import org.apache.commons.io.Charsets;
 import org.eclipse.jgit.internal.storage.file.PackFile;
 import org.eclipse.jgit.internal.storage.file.PackIndex;
 import org.littleshoot.proxy.HttpFilters;
@@ -24,9 +14,12 @@ import org.littleshoot.proxy.impl.DefaultHttpProxyServer;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
->>>>>>> Stashed changes
+import java.util.Map;
+
+import static java.lang.Integer.MAX_VALUE;
 
 /**
  * Used to snoop traffic between the Git CLI and a HTTPs-hosted remote Git repository.
@@ -41,7 +34,12 @@ public class GitProxy {
                 .withFiltersSource(new HttpFiltersSourceAdapter() {
                     @Override
                     public int getMaximumRequestBufferSizeInBytes() {
-                        return 1048576;
+                        return MAX_VALUE;
+                    }
+
+                    @Override
+                    public int getMaximumResponseBufferSizeInBytes() {
+                        return MAX_VALUE;
                     }
 
                     @Override
@@ -50,20 +48,21 @@ public class GitProxy {
                             @Override
                             public HttpResponse clientToProxyRequest(HttpObject httpObject) {
                                 System.out.println(originalRequest.getMethod() + " " + originalRequest.getUri());
-                                if (HttpMethod.POST.equals(originalRequest.getMethod()) && originalRequest.getUri().endsWith("git-receive-pack")) {
-<<<<<<< Updated upstream
-                                    String response = ((HttpContent) httpObject).content().toString(Charset.defaultCharset());
-                                    System.out.println(response);
-=======
+                                for (Map.Entry<String, String> header : originalRequest.headers()) {
+                                    System.out.println(header.getKey() + ": " + header.getValue());
+                                }
+
+                                if (HttpMethod.POST.equals(originalRequest.getMethod()) &&
+                                        (originalRequest.getUri().endsWith("git-receive-pack") /*|| originalRequest.getUri().endsWith("git-upload-pack")*/)) {
                                     File packFile = new File("push.pack");
 
                                     ByteBuf content = ((HttpContent) httpObject).content();
 
-                                    try(ByteArrayOutputStream os = new ByteArrayOutputStream()) {
+                                    try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
                                         content.getBytes(0, os, content.readableBytes());
                                         byte[] bytes = os.toByteArray();
 
-                                        String response = new String(bytes, Charsets.UTF_8);
+                                        String response = new String(bytes, StandardCharsets.UTF_8);
                                         System.out.println(response.substring(0, response.indexOf("PACK")));
 
                                         ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
@@ -82,38 +81,32 @@ public class GitProxy {
 
 //                                    String response = ((HttpContent) httpObject).content().toString(Charset.defaultCharset());
 //                                    System.out.println(response);
->>>>>>> Stashed changes
                                 }
+
+                                System.out.println("\n\n");
+
                                 return null; // continue processing as normal
                             }
 
-<<<<<<< Updated upstream
                             @Override
-                            public HttpObject serverToProxyResponse(HttpObject httpObject) {
-                                if (httpObject instanceof DefaultHttpResponse) {
-                                    DefaultHttpResponse response = (DefaultHttpResponse) httpObject;
-                                    System.out.println("  " + response.getStatus());
-//                                    System.out.println("  " + ((HttpContent) httpObject).content().readableBytes() + " bytes");
+                            public HttpObject proxyToClientResponse(HttpObject httpObject) {
+                                if (httpObject instanceof HttpContent) {
+                                    ByteBuf content = ((HttpContent) httpObject).content();
+                                    try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
+                                        content.getBytes(0, os, content.readableBytes());
+                                        byte[] bytes = os.toByteArray();
+
+                                        String body = new String(bytes, StandardCharsets.UTF_8);
+                                        System.out.println(body);
+                                    } catch (IOException e) {
+                                        throw new UncheckedIOException(e);
+                                    }
                                 }
                                 return httpObject;
                             }
                         };
                     }
                 })
-=======
-//                            @Override
-//                            public HttpObject serverToProxyResponse(HttpObject httpObject) {
-////                                if (httpObject instanceof DefaultHttpResponse) {
-////                                    DefaultHttpResponse response = (DefaultHttpResponse) httpObject;
-////                                    System.out.println("  " + response.getStatus());
-////                                        System.out.println("  " + ((HttpContent) httpObject).content().readableBytes() + " bytes");
-////                                }
-//                                return httpObject;
-//                            }
-                        };
-                    }
-    })
->>>>>>> Stashed changes
                 .start();
 
         for (; ; ) {
