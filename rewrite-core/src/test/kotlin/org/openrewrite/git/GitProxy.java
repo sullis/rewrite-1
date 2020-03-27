@@ -52,38 +52,38 @@ public class GitProxy {
                                     System.out.println(header.getKey() + ": " + header.getValue());
                                 }
 
-                                if (HttpMethod.POST.equals(originalRequest.getMethod()) &&
-                                        (originalRequest.getUri().endsWith("git-receive-pack") /*|| originalRequest.getUri().endsWith("git-upload-pack")*/)) {
-                                    File packFile = new File("push.pack");
-
-                                    ByteBuf content = ((HttpContent) httpObject).content();
-
-                                    try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
-                                        content.getBytes(0, os, content.readableBytes());
-                                        byte[] bytes = os.toByteArray();
-
-                                        String response = new String(bytes, StandardCharsets.UTF_8);
-                                        System.out.println(response.substring(0, response.indexOf("PACK")));
-
-                                        ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
-                                        bis.skip(response.indexOf("PACK"));
-                                        Files.write(packFile.toPath(), bis.readAllBytes(), StandardOpenOption.WRITE);
-                                    } catch (IOException e) {
-                                        throw new UncheckedIOException(e);
-                                    }
-
-                                    PackFile parsedPackFile = new PackFile(packFile, 0);
-                                    for (PackIndex.MutableEntry entry : parsedPackFile) {
-                                        System.out.println(entry);
-                                    }
-
-                                    throw new RuntimeException("stop the push");
-
-//                                    String response = ((HttpContent) httpObject).content().toString(Charset.defaultCharset());
-//                                    System.out.println(response);
-                                }
-
-                                System.out.println("\n\n");
+//                                if (HttpMethod.POST.equals(originalRequest.getMethod()) &&
+//                                        (originalRequest.getUri().endsWith("git-receive-pack") /*|| originalRequest.getUri().endsWith("git-upload-pack")*/)) {
+//                                    File packFile = new File("push.pack");
+//
+//                                    ByteBuf content = ((HttpContent) httpObject).content();
+//
+//                                    try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
+//                                        content.getBytes(0, os, content.readableBytes());
+//                                        byte[] bytes = os.toByteArray();
+//
+//                                        String response = new String(bytes, StandardCharsets.UTF_8);
+//                                        System.out.println(response.substring(0, response.indexOf("PACK")));
+//
+//                                        ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+//                                        bis.skip(response.indexOf("PACK"));
+//                                        Files.write(packFile.toPath(), bis.readAllBytes(), StandardOpenOption.WRITE);
+//                                    } catch (IOException e) {
+//                                        throw new UncheckedIOException(e);
+//                                    }
+//
+//                                    PackFile parsedPackFile = new PackFile(packFile, 0);
+//                                    for (PackIndex.MutableEntry entry : parsedPackFile) {
+//                                        System.out.println(entry);
+//                                    }
+//
+//                                    throw new RuntimeException("stop the push");
+//
+////                                    String response = ((HttpContent) httpObject).content().toString(Charset.defaultCharset());
+////                                    System.out.println(response);
+//                                }
+//
+//                                System.out.println("\n\n");
 
                                 return null; // continue processing as normal
                             }
