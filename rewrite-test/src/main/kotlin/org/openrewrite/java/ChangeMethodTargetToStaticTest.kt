@@ -116,4 +116,40 @@ interface ChangeMethodTargetToStaticTest {
             }
         """)
     }
+
+    @Test
+    fun refactorConstructorToStatic(jp: JavaParser) {
+        val a = """
+            class A {
+                public static A factory() {
+                    return new A();
+                }
+            }
+        """.trimIndent()
+
+        val b = """
+            class B {
+                public static void foo() {
+                    A a = new A();       
+                }
+            }
+        """.trimIndent()
+
+        val cu = jp.parse(b, a)
+        val fixed = cu.refactor()
+                .visit(ChangeMethodTargetToStatic().apply {
+                    setMethod("A A()")
+                    setTargetType("A factory()")
+                })
+                .fix()
+                .fixed
+
+        assertRefactored(fixed, """
+            class B {
+                public static void foo() {
+                    A a = A.factory();
+                }
+            }
+        """.trimIndent())
+    }
 }

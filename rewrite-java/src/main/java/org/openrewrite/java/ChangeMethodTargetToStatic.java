@@ -18,12 +18,13 @@ package org.openrewrite.java;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import org.openrewrite.Validated;
+import org.openrewrite.java.tree.Expression;
 import org.openrewrite.java.tree.Flag;
 import org.openrewrite.java.tree.J;
 import org.openrewrite.java.tree.JavaType;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.openrewrite.Formatting.EMPTY;
 import static org.openrewrite.Tree.randomId;
@@ -48,18 +49,84 @@ public class ChangeMethodTargetToStatic extends JavaRefactorVisitor {
     }
 
     @Override
+    public J visitNewClass(J.NewClass newClass) {
+        if(methodMatcher.matches(newClass)) {
+            andThen(new ConstructorScope(newClass, targetType));
+        }
+        return super.visitNewClass(newClass);
+    }
+
+    @Override
     public J visitMethodInvocation(J.MethodInvocation method) {
         if(methodMatcher.matches(method)) {
-            andThen(new Scoped(method, targetType));
+            andThen(new MethodScope(method, targetType));
         }
         return super.visitMethodInvocation(method);
     }
 
-    public static class Scoped extends JavaRefactorVisitor {
+    private static class ConstructorScope extends JavaRefactorVisitor {
+        private final J.NewClass scope;
+        private final String targetType;
+
+        private ConstructorScope(J.NewClass scope, String targetType) {
+            this.scope = scope;
+            this.targetType = targetType;
+        }
+
+        @Override
+        public Iterable<Tag> getTags() {
+            return Tags.of("to", targetType);
+        }
+
+        @Override
+        public J visitNewClass(J.NewClass newClass) {
+            if(scope.isScope(newClass)) {
+                maybeAddImport(targetType);
+                JavaType.FullyQualified fullyQualifiedTargetType = JavaType.Class.build(targetType);
+
+                // Translate the arguments to the constructor into arguments to the method, on the assumption that
+                // the constructor and its static method replacement accept the same arguments.
+                // If this assumption does not hold it is up to the recipe using this one as a building block to handle
+                Optional<J.NewClass.Arguments> constructorArgs = Optional.ofNullable(newClass.getArgs());
+                J.MethodInvocation.Arguments methodArgs = new J.MethodInvocation.Arguments(
+                        randomId(),
+                        constructorArgs.map(J.NewClass.Arguments::getArgs).orElse(null),
+                        constructorArgs.map(J.NewClass.Arguments::getFormatting).orElse(null));
+
+                J.MethodInvocation typelessTransformedMethod = new J.MethodInvocation(
+                        randomId(),
+                        null,
+                        null,
+                        J.Ident.build(randomId(), fullyQualifiedTargetType.getClassName(), fullyQualifiedTargetType, EMPTY),
+                        methodArgs,
+                        null,
+                        newClass.getFormatting()
+                );
+
+                // I'm not sure how to turn J.NewClass.getType()'s result into a FullyQualifiedType suitable to be used
+                // with maybeRemoveImport(), so it's possible this transformation leaves behind an unused import
+                Set<Flag> tags = new LinkedHashSet<>();
+                tags.add(Flag.Static);
+                JavaType.Method methodType = JavaType.Method.build(
+                        fullyQualifiedTargetType,
+                        "name",
+                        null,
+                        new JavaType.Method.Signature(
+                                newClass.getType(),
+                                methodArgs.getArgs().stream().map(Expression::getType).collect(Collectors.toList())),
+                        new ArrayList<>(), // This doesn't seem right but I'm not sure where to get the parameter's names from
+                        tags);
+                return typelessTransformedMethod.withType(methodType);
+            }
+            return super.visitNewClass(newClass);
+        }
+    }
+
+    private static class MethodScope extends JavaRefactorVisitor {
         private final J.MethodInvocation scope;
         private final String targetType;
 
-        public Scoped(J.MethodInvocation scope, String clazz) {
+        public MethodScope(J.MethodInvocation scope, String clazz) {
             this.scope = scope;
             this.targetType = clazz;
         }
